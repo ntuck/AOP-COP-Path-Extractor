@@ -1500,7 +1500,7 @@ def load(contents,example_name,fname):
         timestamp={"timestamp": datetime.now().timestamp()}
     elif input_id == 'example-query-dropdown':
         print(example_name)
-        filepath = f"AOP-COP-Path-Extractor/assets/example_queries/{example_name}"
+        filepath = f"C:/Users/nynat/Documents/GitHub/AOP-COP-Path-Extractor/assets/example_queries/{example_name}"
         file = open(filepath,"rb")
             #content_type, content_string = fp.split(',')
             #decoded = base64.b64decode(fp)
