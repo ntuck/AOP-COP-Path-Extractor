@@ -1,6 +1,17 @@
 # ExEmPLAR: AOP/COP Path-Extractor and Knowledge Graph Interface
 Construct Adverse/Clinical Outcome Pathway queries and extract path information from ROBOKOP or other Biomedical Knowledge Graphs
+## Link to online ExEmPLAR application: https://www.exemplar.mml.unc.edu
+## Visual User Guide: https://www.exemplar.mml.unc.edu/user_guide
+## Publication: To be included upon publication.
 
+## Instructions for setting up local ExEmPLAR instance:
+  1. Clone "AOP-COP-Path-Extractor" Github repository
+  2. Create new Python 3 environment and install all required libraries in 'requirements.txt'
+  3. Execute 'dash_app.py' script and click the link that appears in the terminal output to load ExEmPLAR in your favorite web browser
+
+## Adding support for new knowledge graphs:
+  ExEmPLAR can be extended to support queries on other knowledge graph databases. If you have suggestions for additional resources to be added to the app, please submit an Issue to this repo and we can collaborate to develop new features.
+  
 ## Description
 Biomedical Knowledge Graph Sources\
 We developed ExEmPLAR around the Neo4j graph database platform (https://neo4j.com/). The tool is designed to operate on knowledge graphs implemented in Neo4j such that any new Neo4j knowledge graph could be added with minimal development. Biomedical KGs currently implemented in ExEmPLAR include:\
@@ -8,6 +19,7 @@ We developed ExEmPLAR around the Neo4j graph database platform (https://neo4j.co
 •	Hetionet\
 •	CompToxAI\
 •	SCENTKOP
+
 ### Query Construction Tool
 The primary functionality of ExEmPLAR is a graphical user interface (GUI) for rapidly constructing and editing queries in the Cypher query language (https://neo4j.com/developer/cypher/) and executing those queries on knowledge graphs hosted on Neo4j databases. This GUI for Cypher query building is critical for opening the use of biomedical knowledge graphs to the broader biomedical research community because it allows users to experiment with highly tunable queries without developing specialized knowledge about Neo4j or the Cypher query language. User-constructed queries are automatically processed to maximize flexibility, while maintaining query efficiency. To limit query load on the Neo4j graph databases, ExEmPLAR queries are designed to time out after 60 seconds of work.\
 The query construction interface allows users to construct queries that traverse a KG from a specified Start Node type to a specified End Node type. Users may construct up to 10 unique paths (P1-P10) from Start to End, with each individual path comprising up to 5 intermediate nodes with user-defined type (Levels 1-5). Start, End, and Level 1-5 nodes all include a text box for users to define specific node names or IDs that a query pattern must include. To prevent against long-running, open-ended queries, users must define at least one specific node name or ID for either the Start or End nodes. In addition to defining node types and entities, users may also define specific predicates between nodes by selecting the “Use Edges” checkbox. Selecting the “Get Result MetaData” checkbox will return additional node and edge properties in the Answer Table.

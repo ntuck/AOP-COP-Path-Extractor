@@ -17,6 +17,7 @@ from datetime import datetime
 from networkx.drawing.nx_pydot import graphviz_layout
 from Neo4jSearch import Graphsearch
 from Neo4jSearch import DisplayQuery
+from Neo4jSearch import TestQuery
 from Neo4jSearch import getNodeAndEdgeLabels
 from Neo4jSearch import checkNodeNameID
 import VisualizePaths
@@ -28,7 +29,12 @@ import pickle
 import io
 import base64
 import PCA
+import flask
 
+#Register pages
+
+# Load extra layouts
+cyto.load_extra_layouts()
 
 app = dash.Dash()
 app.title = 'ExEmPLAR'
@@ -234,6 +240,7 @@ triangulator_button = html.Button('Get PubMed Abstract Co-Mentions', id='submit-
 create_subgraph_fig_button = html.Button('Create Figure from Selected Rows', id='submit-subgraph-fig-val', n_clicks=0, style={"display":'None'})
 subgraph_fig_edge_checkbox = dcc.Checklist(id="subgraph-fig-edge-checkbox",style={"display":'None'}, options=[{"label":"Display/Hide Figure Edge Labels","value":True}],value=[])
 subgraph_fig_pubmed_checkbox = dcc.Checklist(id="subgraph-fig-pubmed-checkbox",style={"display":'None'}, options=[{"label":"Generate Pubmed Co-Mentions in Figure","value":True}],value=[])
+subgraph_fig_allrows_checkbox = dcc.Checklist(id="subgraph-fig-allrows-checkbox",style={"display":'None'}, options=[{"label":"Use All Answer Rows for Figure","value":True}],value=[])
 dwpc_button = html.Button('Compute Degree-Weighted Path Counts', id='submit-dwpc-val', n_clicks=0, style={"display":'None'})
 dwpc_weight = dcc.Input(id="dwpc-weight-select",
                         value=0,
@@ -254,6 +261,7 @@ start_map_output = html.Div([
     dcc.Textarea(
         id='start-map-output',
         spellCheck="false",
+        readOnly=True,
         className='searchTerms',
     )],
     id='start-map-div',style={'display': 'None'})
@@ -263,6 +271,7 @@ end_map_output = html.Div([
     dcc.Textarea(
         id='end-map-output',
         spellCheck="false",
+        readOnly=True,
         className='searchTerms',
     )],
     id='end-map-div',style={'display': 'None'})
@@ -307,7 +316,8 @@ example_queries = html.Div([
         id="example-query-dropdown",
         options=[
         {'label':"What is the simple mechanism of action of Drug X for treating Disease Y?", 'value':"DrugX-Gene-DiseaseY.pickle"},
-        {'label':"Which Genes have a Sequence Variant associated with Disease X?", 'value':"Gene-SeqVariant-DiseaseX.pickle"}
+        {'label':"Which Genes have a Sequence Variant associated with Disease X?", 'value':"Gene-SeqVariant-DiseaseX.pickle"},
+        {'label':"What are the Biological Process and Molecular Activities shared between Genes X and Y?", 'value':"GeneX-BioProcessOrActivity-GeneY.pickle"}
         ],
         value=None,
         placeholder='Select an example query pattern...',
@@ -352,7 +362,16 @@ subgraph_fig = html.Img(id='subgraph-fig')
 
 #Display Random Forest Cross Validation Stats
 rf_5FCV_fig = html.Img(id='rf-5FCV-fig', style={'width':'30%','height':'30%'})
-
+#Create loading icons for testing the query patterns
+loading_tests = []
+for j in range(10):
+    load_test =  dcc.Loading(
+        id='loading-query-%i' % (j+1),
+        type="default",
+        color=colors['text'],
+        children=html.Div(id='loading-output-query-%i' % (j+1))
+    )
+    loading_tests.append(load_test)
 #Create selector element to specify graph search queries.
 selector = []
 for j in range(10):
@@ -361,6 +380,7 @@ for j in range(10):
         style={'display':('None' if j != 0 else 'block')},
         children=[
             html.Div(children=[
+                html.Td(loading_tests[j],style={'padding-right':'2em','vertical-align':'top'}),
                 html.Td(children=[html.Tr(children='Pattern Name:'),pattern_name_boxes[j]], style={'padding-right':'1em','vertical-align':'top'}),
                 html.Td(children=[html.Tr(children='Length:'),all_k_selects[j]], style={'vertical-align':'top'})],
                 style={'display':'flex','flex-direction':'row','align-items':'center','justify-content':'center'}),   
@@ -494,7 +514,8 @@ app.layout = html.Div(id="app-layout",style={'display':'flex','flex-direction':'
     children=[
         html.Div(last_callback,style={'display':'None'}),
         html.H1(children=[
-            html.Div("",style={'height':'2em','width':'2em','padding-left':'2em'}),
+            #html.Div("",style={'height':'2em','width':'2em','padding-left':'2em'}),
+            html.A(html.Button("User Guide",style={'background-color':'whitesmoke', 'color':'black'}), href="/user_guide", target="_blank"),
             html.Div([
                 'ExEmPLAR',
                 html.Br(),
@@ -586,7 +607,7 @@ app.layout = html.Div(id="app-layout",style={'display':'flex','flex-direction':'
         )], style={'padding':'2em','display':'flex','flex-direction':'column','align-items':'center','justify-content':'center', 'padding-bottom': '1em','background-color':'whitesmoke','border-style':'outset'}),
         
         html.Div([#html.Tr([
-            html.Tr([protein_names_button,triangulator_button,create_subgraph_fig_button,html.Td([subgraph_fig_edge_checkbox,subgraph_fig_pubmed_checkbox]),load_4,#dwpc_button, dwpc_weight, load_3,
+            html.Tr([protein_names_button,triangulator_button,create_subgraph_fig_button,html.Td([subgraph_fig_edge_checkbox,subgraph_fig_pubmed_checkbox,subgraph_fig_allrows_checkbox]),load_4,#dwpc_button, dwpc_weight, load_3,
                 dbc.Tooltip( #For protein-names button
                     "If \"Gene\" nodes are present, you may retrieve HGNC-Approved protein names for all genes.",
                     target="submit-protein-names",
@@ -612,7 +633,7 @@ app.layout = html.Div(id="app-layout",style={'display':'flex','flex-direction':'
                 maxZoom=2,
                 elements=elements,
                 #responsive=True,
-                layout={'name':'breadthfirst'},
+                layout={'name':'spread'},
                 style={'display':'None'},
                 stylesheet=[
                     {'selector': 'node',
@@ -668,6 +689,10 @@ app.layout = html.Div(id="app-layout",style={'display':'flex','flex-direction':'
 
         html.Div(rf_5FCV_fig,style={'display':'flex','flex-direction':'row','align-items':'center','justify-content':'center'})
     ])
+
+@app.server.route("/user_guide")
+def get_report():
+    return flask.send_file("pages/20230703_mml_exemplar_annotated.html")
 
 selected_nodes = []
 selected_edges = []
@@ -894,16 +919,19 @@ def hide_elements_edges(show_edge):
 
     return tail_edge_style
 
-def processInputText(text):
+def processInputText(text,lower=True):
     l1 = []
     for line in text.split('\n'):
         a = line
         if a != "":
-            l1.append(a.strip())
+            if lower == True:
+                l1.append(a.strip().lower())
+            else:
+                l1.append(a.strip())
     return l1
 
 @app.callback(
-    [Output('loading-1', 'children'),Output('clipboard-button','content'),Output('answer-table', 'children'),Output('submit-dwpc-val', 'style'),Output('submit-protein-names', 'style'),Output('submit-triangulator-val', 'style'),Output('submit-subgraph-fig-val', 'style'),Output('subgraph-fig-edge-checkbox', 'style'),Output('subgraph-fig-pubmed-checkbox', 'style'),Output('dwpc-weight-select', 'style')],
+    [Output('loading-1', 'children'),Output('clipboard-button','content'),Output('answer-table', 'children'),Output('submit-dwpc-val', 'style'),Output('submit-protein-names', 'style'),Output('submit-triangulator-val', 'style'),Output('submit-subgraph-fig-val', 'style'),Output('subgraph-fig-edge-checkbox', 'style'),Output('subgraph-fig-pubmed-checkbox', 'style'),Output('subgraph-fig-allrows-checkbox', 'style'),Output('dwpc-weight-select', 'style')],
     [Input('submit-val', 'n_clicks'),Input('clipboard-button', 'n_clicks')],
     [State("kg-dropdown", 'value'),State('starts', 'value'),State('ends','value'),State("source-dropdown", 'value'), State("tail-dropdown", 'value'), State('tail-edge','value'),
     State('edge-checkbox', 'value'),State('metadata-checkbox', 'value'),State('pattern-select', 'value'),
@@ -1062,11 +1090,15 @@ def submit_path_search(submit_clicks,clipboard_clicks,graph_db,start_node_text,e
                 dash.no_update,
                 dash.no_update,
                 dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
                 dash.no_update]
     elif button_id == "submit-val" and submit_clicks:
         print("Running PATH SEARCH!")
         try:
-            ans = Graphsearch(graph_db,start_nodes,end_nodes,searched_nodes_dict,searched_options_dict,searched_edges_dict,metadata_bool,timeout_ms=120000,limit_results=10000)
+            answersdf = Graphsearch(graph_db,start_nodes,end_nodes,searched_nodes_dict,searched_options_dict,searched_edges_dict,metadata_bool,timeout_ms=120000,limit_results=10000)
         except:
             return [[f"Either no answers were found or query execution time exceeded timeout limit (> 2 minutes). Please revise query patterns and try again."],
                 dash.no_update,
@@ -1074,9 +1106,13 @@ def submit_path_search(submit_clicks,clipboard_clicks,graph_db,start_node_text,e
                 dash.no_update,
                 dash.no_update,
                 dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
+                dash.no_update,
                 dash.no_update]
-                
-        answersdf = ans.drop_duplicates()
+        
+        answersdf = answersdf.drop_duplicates()
         esnd_columns=[i for i in answersdf.columns if "esnd" in i]
         answersdf['Max ESND'] = answersdf[esnd_columns].max(axis=1).to_list()
         maxESNDcol = answersdf.pop('Max ESND')
@@ -1084,6 +1120,25 @@ def submit_path_search(submit_clicks,clipboard_clicks,graph_db,start_node_text,e
         answersdf = answersdf.sort_values(by='Max ESND', ascending=True)
         columns = answersdf.columns
         size = len(answersdf.index)
+        if metadata_bool != False:
+            for idx,row in answersdf.iterrows():
+                for col in range(len(columns)):
+                    if "edge" in columns[col]:
+                        if row[columns[col]] == "regulates":
+                            metadata = row[columns[col+1]]
+                            index_of_start = metadata.find("object_direction_qualifier: ")+28
+                            print(index_of_start)
+                            index_of_end = metadata.find(",",index_of_start,-1)
+                            print(index_of_end)
+                            answersdf.loc[idx, columns[col]] = metadata[index_of_start:index_of_end]
+                        elif row[columns[col]] == "affects":
+                            metadata = row[columns[col+1]]
+                            index_of_start = metadata.find("description: ")+13
+                            print(index_of_start)
+                            index_of_end = metadata.find(",",index_of_start,-1)
+                            print(index_of_end)
+                            answersdf.loc[idx, columns[col]] = metadata[index_of_start:index_of_end]
+                        
         if len(get_metadata) > 0:
             tooltip = [{columns[col]: {'value': answersdf.iat[ind,col+1].replace(', ',',\\\n'), 'type': 'markdown'} if 'MetaData' in columns[col+1] else {} for col in range(len(columns)-1)} for ind in range(len(answersdf.index))]
         else:
@@ -1141,6 +1196,7 @@ def submit_path_search(submit_clicks,clipboard_clicks,graph_db,start_node_text,e
                 {"margin-right":"1em",'display':'block'},
                 {"margin-right":"1em",'display':'block'},
                 {"margin-right":"1em",'display':'block'},
+                {"margin-right":"1em",'display':'block'},
                 {"margin":"1em",'display':'block', 'width':'69%'})
 
 @app.callback([Output('loading-start', 'children'),Output('start-map-output', 'value'),Output('start-map-div', 'style')],
@@ -1188,12 +1244,15 @@ def KGNodeMapper(end_n_clicks, end_terms, graph_db, end_label, e_map_val, e_map_
     State('cytoscape-fig','elements'),
     State('answers','selected_rows'),
     State('subgraph-fig-edge-checkbox','value'),
-    State('subgraph-fig-pubmed-checkbox','value')
+    State('subgraph-fig-pubmed-checkbox','value'),
+    State('subgraph-fig-allrows-checkbox','value')
     ],
     prevent_initial_call=True)
-def ShowAnswerSubgraph(subgraph_fig_clicks,answer_datatable,elements,selected_rows,edge_labels_option,pubmed_labels_option):
+def ShowAnswerSubgraph(subgraph_fig_clicks,answer_datatable,elements,selected_rows,edge_labels_option,pubmed_labels_option,all_rows_option):
     if subgraph_fig_clicks != 0:
-        if len(selected_rows)<1: return dash.no_update,{'display':'None'},dash.no_update
+        if len(selected_rows)<1: 
+            if len(all_rows_option) == 0:
+                return dash.no_update,{'display':'None'},dash.no_update,dash.no_update
         dff = pd.DataFrame(answer_datatable['props']['data'])
         if len(edge_labels_option) > 0:
             edge_labels_bool = edge_labels_option[0]
@@ -1203,7 +1262,11 @@ def ShowAnswerSubgraph(subgraph_fig_clicks,answer_datatable,elements,selected_ro
             pubmed_labels_bool = pubmed_labels_option[0]
         else: 
             pubmed_labels_bool = False
-        fig = VisualizeAnswerRow(dff,selected_rows,elements,edge_labels=edge_labels_bool,pubmed_comentions=pubmed_labels_bool)
+        if len(all_rows_option) > 0:
+            all_rows_bool = all_rows_option[0]
+        else: 
+            all_rows_bool = False
+        fig = VisualizeAnswerRow(dff,selected_rows,elements,edge_labels=edge_labels_bool,pubmed_comentions=pubmed_labels_bool,all_rows=all_rows_bool)
         style={'display':'block','width':'100%','height':'900px','background-color':'whitesmoke'}
         return fig[0],style,fig[1],{'display':'block'}
     else:
@@ -1474,21 +1537,28 @@ def save(n_clicks, layout_state, fname, last_callback_data):
     last_call_time = last_callback_data["timestamp"]
     delta_time = timestamp-last_call_time
     print(delta_time)
-    if delta_time < 2:
+    if delta_time < 1:
         raise dash.exceptions.PreventUpdate
-    if n_clicks is not None and n_clicks>0:
+    if n_clicks>0:
+        if delta_time < 1:
+            raise dash.exceptions.PreventUpdate
         pickle.dump(layout_state, open(f"{fname}.pickle", "wb"))
         return dcc.send_file(f"{fname}.pickle")
     else:
         raise dash.exceptions.PreventUpdate
-    #return dcc.send_file(f"{fname}.pickle")
 
 @app.callback(
     Output("app-layout", "children"),Output("last-callback","data"),
     [Input('upload-data', 'contents'),Input("example-query-dropdown", "value")],
-    State('upload-data', 'filename'),
+    State('upload-data', 'filename'),State("last-callback","data"),
     prevent_initial_call=True)
-def load(contents,example_name,fname):
+def load(contents,example_name,fname,last_callback_data):
+    timestamp=datetime.now().timestamp()
+    last_call_time = last_callback_data["timestamp"]
+    delta_time = timestamp-last_call_time
+    print(delta_time)
+    if delta_time < 1:
+        raise dash.exceptions.PreventUpdate
     input_id = dash.callback_context.triggered[0]['prop_id'].split('.')[0]
     print(input_id)
     if input_id == 'upload-data':
@@ -1507,21 +1577,100 @@ def load(contents,example_name,fname):
         #content_type, content_string = file.split(',')
         layout_state = pickle.load(file)
         file.close()
+        # The following line is necessary to prevent the dcc.Download from triggering upon reloading the app.
+        # It replaces the contents of the Download with a NoneType object.
+        #print(layout_state[4]['props']['children'][2]['props']['children'][0]['props']['children'][2])#['data']['content'])
+        try:
+            layout_state[4]['props']['children'][2]['props']['children'][0]['props']['children'][2]['props']['data']['content'] = None
+        except:
+            pass
+        # for key,val in layout_state[4]['props']['children'][2]['props']['children'][0]['props']['children'][2]['props']['data'].items():
+        #     print(key)
+        #print(layout_state[5]['props']['children'][2]['props']['children'][0]['props']['children'][2]['props']['data']['content'])
         timestamp={"timestamp": datetime.now().timestamp()}
     return layout_state,timestamp
 
-# @app.callback(
-#     Output("app-layout", "children"),
-#     Input("example-query-dropdown", "options"),
-#     prevent_initial_call=True)
-# def load_example_queries(example_name):
-#     print(example_name)
-#     file = f"/assets/example_queries/{example_name}"
-#     content_type, content_string = file.split(',')
-#     print(content_type)
-#     decoded = base64.b64decode(content_string)
-#     layout_state = pickle.load(io.BytesIO(decoded))
-#     return layout_state
+@app.callback(
+    Output('loading-query-1', 'children'),
+    Input("node-dropdown-1-1", 'value'),Input("node-dropdown-1-2", 'value'),Input("node-dropdown-1-3", 'value'),
+    Input("node-dropdown-1-4", 'value'),Input("node-dropdown-1-5", 'value'),
+    Input("node-options-1-1", 'value'),Input("node-options-1-2", 'value'),Input("node-options-1-3", 'value'),
+    Input("node-options-1-4", 'value'),Input("node-options-1-5", 'value'),
+    Input("edge-dropdown-1-1", 'value'),Input("edge-dropdown-1-2", 'value'),Input("edge-dropdown-1-3", 'value'),
+    Input("edge-dropdown-1-4", 'value'),Input("edge-dropdown-1-5", 'value'),
+    Input('starts', 'value'),Input('ends','value'),
+    Input("source-dropdown", 'value'),Input("tail-dropdown", 'value'),Input('tail-edge','value'),Input('k-select-1', 'value'),
+    State("kg-dropdown", 'value'),State('edge-checkbox', 'value'),State('metadata-checkbox', 'value'),
+    prevent_initial_call=True)
+def test_path_search(
+        k1_1_nodes,k1_2_nodes,k1_3_nodes,k1_4_nodes,k1_5_nodes,
+        k1_1_options,k1_2_options,k1_3_options,k1_4_options,k1_5_options,
+        k1_1_edges,k1_2_edges,k1_3_edges,k1_4_edges,k1_5_edges,
+        start_node_text,end_node_text,s,t,t_edges,k_val_1,
+        graph_db,show_edges,get_metadata):
+    
+    all_k_nodes=[k1_1_nodes,k1_2_nodes,k1_3_nodes,k1_4_nodes,k1_5_nodes]
+    all_k_options=[k1_1_options,k1_2_options,k1_3_options,k1_4_options,k1_5_options]
+    all_k_edges=[k1_1_edges,k1_2_edges,k1_3_edges,k1_4_edges,k1_5_edges]
+    k_values=k_val_1
+    edges_bool = checkToBool(show_edges)
+    start_nodes = processInputText(start_node_text)
+    if start_nodes==[]:
+        start_nodes=["wildcard"]
+    end_nodes = processInputText(end_node_text)
+    if end_nodes==[]:
+        end_nodes=["wildcard"]
+    searched_nodes_dict = {}
+    searched_options_dict = {}
+    searched_edges_dict = {}
+    
+    k_nodes = [f"{s}",f"{all_k_nodes[0]}",f"{all_k_nodes[1]}",f"{all_k_nodes[2]}",f"{all_k_nodes[3]}",f"{all_k_nodes[4]}",f"{t}"]
+    wildcarded_k_nodes = ['wildcard' if x == "None" else x for x in k_nodes]
+    clean_k_nodes = ['`'+x+'`' if 'biolink' in x else x for x in wildcarded_k_nodes]
+    searched_nodes = {"pattern-1":clean_k_nodes[:k_values+1]+[clean_k_nodes[-1]]}
+    #print(searched_nodes)
+    searched_nodes_dict.update(searched_nodes)
+
+    if len("".join(all_k_options)) > 0:
+        k_options = [f"{all_k_options[0]}",f"{all_k_options[1]}",f"{all_k_options[2]}",f"{all_k_options[3]}",f"{all_k_options[4]}"]
+        wildcarded_k_options = ['wildcard' if x == "" else x for x in k_options]
+        clean_k_options = wildcarded_k_options
+    else:
+        clean_k_options = ['wildcard', 'wildcard', 'wildcard', 'wildcard', 'wildcard']
+    searched_options={"pattern-1":clean_k_options[:k_values]+[clean_k_options[-1]]}
+    #print(searched_options)
+    searched_options_dict.update(searched_options)
+
+    if edges_bool == True:
+        k_edges = [f"{all_k_edges[0]}",f"{all_k_edges[1]}",f"{all_k_edges[2]}",f"{all_k_edges[3]}",f"{all_k_edges[4]}",f"{t_edges}"]
+        wildcarded_k_edges = ['wildcard' if x == "None" else x for x in k_edges]
+        clean_k_edges = ['`'+x+'`' if 'biolink' in x else x for x in wildcarded_k_edges]
+    else:
+        clean_k_edges = ['wildcard', 'wildcard', 'wildcard', 'wildcard', 'wildcard', 'wildcard']
+    searched_edges={"pattern-1":clean_k_edges[:k_values]+[clean_k_edges[-1]]}
+    #print(searched_edges)
+    searched_edges_dict.update(searched_edges)
+
+    # if len(get_metadata) > 0:
+    #     metadata_bool = get_metadata[0]
+    # else: 
+    #     metadata_bool = False
+
+    any_paths = TestQuery(graph_db,start_nodes,end_nodes,searched_nodes_dict,searched_options_dict,searched_edges_dict,start_end_matching=False)
+    print(any_paths)
+    if any_paths == None:
+        print("Path not found")
+        return f"Found 0 paths. Please revise query."
+    elif any_paths == "undefined":
+            return f"Test query timed out! Results may still exist."
+    elif any_paths > 0:
+        if any_paths == 1000:
+            return f"Found >{str(any_paths)} paths!"
+        else:
+            return f"Found {str(any_paths)} paths!"
+    else:
+        print("Path not found")
+        return f"Found 0 paths. Please revise query."
 
  #############################################################    
 
